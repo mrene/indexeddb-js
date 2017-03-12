@@ -54,6 +54,7 @@ define(['underscore'], function(_) {
       this._preventDefault = true;
     };
     this.target = target;
+    this.currentTarget = target;
     if ( this.target.error && this.target.errorCode )
       this.toString = function() {
         return '[' + this.target.errorCode + '] ' + this.target.error;
@@ -473,6 +474,9 @@ define(['underscore'], function(_) {
         if ( err )
           return req._error(this, 'indexeddb.Store.G.10',
                             'failed to open a transaction: ' + err);
+
+        this._txn._incrementOperationsCount();
+        var self = this;
         sdb.all(
           'SELECT c_value FROM "' + this._meta.table + '" WHERE c_key = ?',
           objectID,
@@ -484,8 +488,10 @@ define(['underscore'], function(_) {
               return req._error(this, 'indexeddb.Store.G.40',
                                 'internal error: multiple records for key');
             req.result = rows.length > 0 ? uj(rows[0].c_value) : undefined;
-            if ( req.onsuccess )
+            if ( req.onsuccess ) {
               req.onsuccess(new Event(req));
+              self._txn._operationCompleted();
+            }
           }, this)
         );
       }, this);
@@ -499,6 +505,9 @@ define(['underscore'], function(_) {
         if ( err )
           return req._error(this, 'indexeddb.Store.P.10',
                             'failed to open a transaction: ' + err);
+
+        this._txn._incrementOperationsCount();
+
         var self = this;
         var key = object[this._meta.options.keyPath];
         sdb.run(
@@ -513,8 +522,10 @@ define(['underscore'], function(_) {
               return req._error(self, 'indexeddb.Store.P.30',
                                 'unexpected number of changes: ' + diff.changes);
             req.result = key;
-            if ( req.onsuccess )
+            if ( req.onsuccess ) {
               req.onsuccess(new Event(req));
+              self._txn._operationCompleted();
+            }
           });
       }, this);
       return req;
@@ -654,6 +665,16 @@ define(['underscore'], function(_) {
         this.onerror(event);
       if ( ! event._preventDefault )
         this.db._error(event);
+    };
+    this._operationCount = 0;
+    this._incrementOperationsCount = function () {
+      this._operationCount++;
+    };
+    this._operationCompleted = function () {
+      this._operationCount--;
+      if (this._operationCount === 0 && this.oncomplete) {
+        this.oncomplete(new Event(this));
+      }
     };
 
     //-------------------------------------------------------------------------
@@ -915,10 +936,9 @@ define(['underscore'], function(_) {
     //-------------------------------------------------------------------------
     this.setVersion = function(version) {
       var req = new Request();
-        defer(function(){req._error(this, 'indexeddb.Database.SV.10',
-                                    'setVersion() has been deprecated in favor of onupgradeneeded');}, this);
-        return req;
-      };
+      defer(function(){req._error(this, 'indexeddb.Database.SV.10',
+                                  'setVersion() has been deprecated in favor of onupgradeneeded');}, this);
+      return req;
     };
 
     //-------------------------------------------------------------------------
